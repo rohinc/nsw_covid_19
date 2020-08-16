@@ -1,0 +1,10 @@
+name: Publish Document
+title:
+username:
+account: rpubs
+server: rpubs.com
+hostUrl: rpubs.com
+appId: https://api.rpubs.com/api/v1/document/649509/536decfc0ee24928a316f35c225ba456
+bundleId: https://api.rpubs.com/api/v1/document/649509/536decfc0ee24928a316f35c225ba456
+url: http://rpubs.com/rohinc/649509
+when: 1597585127.1812

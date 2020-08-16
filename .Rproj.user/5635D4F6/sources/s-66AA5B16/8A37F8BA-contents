@@ -1,0 +1,187 @@
+library(data.table)
+library(dplyr)
+library(rgdal)
+library(leaflet.extras)
+library(lubridate)
+library(markdown)
+
+#load the data
+#important to use online link so the data is always most updated
+covid <- fread('https://data.nsw.gov.au/data/dataset/aefcde60-3b0c-4bc0-9af1-6fe652944ec2/resource/21304414-1ff1-4243-a5d2-f52778048b29/download/confirmed_cases_table1_location.csv')
+#covid <- fread("covid_cases.csv")
+covid = as.data.table(covid)
+postcodes <- fread("australian_postcodes.csv")
+postcodes = as.data.table(postcodes)
+sydney_postcodes <- fread("sydney_postcodes.csv")
+sydney_postcodes = as.data.table(sydney_postcodes)
+
+#filter records for only NSW and remove duplicates where the same postcode has
+# different suburb names 
+nsw_codes <- postcodes[state == 'NSW']
+nsw_codes <- distinct(nsw_codes, postcode, .keep_all = TRUE)
+nsw_codes = as.data.table(nsw_codes)
+
+#merge datasets to include long/lat coordinates for each postcode
+covid <- merge(covid, nsw_codes[, c("postcode", "long", "lat")], by="postcode")
+#clean up null values and incorrect postcode coordinates
+covid <- filter(covid, postcode !='1871' & long != 0.0000)
+
+nsw_shape <- readOGR(dsn="NSW_LOCALITY_POLYGON_shp.shp")
+
+
+  m <- leaflet(covid) %>%
+    addTiles() %>% 
+    addMarkers( clusterOptions = markerClusterOptions()) %>% 
+    addProviderTiles(providers$CartoDB.Positron) %>%
+    addPolygons(data = nsw_shape)
+
+#m
+
+#unable to see the boundaries clearly, lets edit the boundaries to make them
+#more visible
+
+m <- leaflet(covid) %>%
+  addTiles() %>% 
+  addMarkers( clusterOptions = markerClusterOptions()) %>% 
+  addProviderTiles(providers$CartoDB.Positron) %>%
+  addPolygons(data = nsw_shape, color = "#444444", weight = 1, smoothFactor = 0.5,
+              opacity = 1.0, fillOpacity = 0.5)
+
+
+#we are able to see most of the cases reside in the greater sydney area and
+#in the north of NSW. Lets create a filter to see only the cases in Greater Sydney
+
+#filter only for the greater sydney region
+covid <- covid %>% filter(postcode %in% sydney_postcodes$postcode)
+
+#we'll use the 'fitBounds' to view this new filtered dataset. 
+m <- leaflet(covid) %>%
+  addTiles() %>% 
+  addMarkers( clusterOptions = markerClusterOptions()) %>% 
+  addProviderTiles(providers$CartoDB.Positron) %>%
+  addPolygons(data = nsw_shape, color = "#444444", weight = 1, smoothFactor = 0.5,
+              opacity = 0.5, fillOpacity = 0.1) %>%
+  fitBounds(lng1 = min(covid$long), 
+            lat1 = min(covid$lat), 
+            lng2 = max(covid$long), 
+            lat2 = max(covid$lat))
+
+
+
+#lets add a colour range to see if we can see any trends
+a <- as.data.frame(table(covid$postcode))
+colnames(a) <- c("postcode", "Freq")
+
+
+bins <- c(0, 20, 40, 50, 60, 70, 80, 100, Inf)
+pal <- colorBin("YlOrRd", domain = a$Freq, bins = bins)
+
+covid_sydney <- covid %>% filter(postcode %in% sydney_postcodes$postcode)
+
+total_cases_by_postcode <- as.data.frame(table(covid_sydney$postcode))
+colnames(total_cases_by_postcode) <- c("postcode", "Freq")
+
+#> Assuming "long" and "lat" are longitude and latitude, respectively
+
+sydney_map
+
+#add labels
+labels <- sprintf(
+  "<strong>%s</strong><br/>%g  cases",
+  a$postcode, a$Freq
+) %>% lapply(htmltools::HTML)
+
+
+m <- leaflet(covid) %>%
+  addTiles() %>% 
+  addProviderTiles(providers$CartoDB.Positron) %>%
+  addPolygons(data = nsw_shape, fillColor = ~pal(a$Freq),
+              weight = 1,
+              opacity = 1,
+              color = "black",
+              dashArray = "4",
+              fillOpacity = 0.7,
+              highlight = highlightOptions(
+                weight = 4,
+                color = "gray",
+                dashArray = "",
+                fillOpacity = 0.7,
+                bringToFront = TRUE),
+              label = labels,
+              labelOptions = labelOptions(
+                style = list("font-weight" = "normal", padding = "3px 8px"),
+                textsize = "15px",
+                direction = "auto")) %>%
+  setView(lng = 151.2016, 
+            lat = -33.86052, 
+           zoom = 11) 
+
+
+#add tlegend
+
+m %>%   addLegend(pal = pal, values = ~a$Freq, opacity = 0.7, title = "Number of cases",
+                  position = "bottomright")
+
+
+#add date difference for active cases
+covid_active <- mutate(covid, system_date = Sys.Date())
+covid_active <- as.data.frame(covid_active)
+covid_active <- covid_active %>% mutate(duration = covid_active$system_date - as.Date(covid_active$notification_date))
+#now we have cases which have been notified less than 20 days ago, we'll consider these cases as 'Active Cases' for our scenario
+covid_active <- filter(covid_active, duration < 20)
+#lets graph the active across the Greater Sydney region 
+
+#lets add a colour range to see if we can see any trends
+aa <- as.data.frame(table(covid_active$postcode))
+colnames(aa) <- c("postcode", "Freq")
+
+bins <- c(0, 5, 7, 10, 13, 15, 17, 20, 30, Inf)
+pal <- colorBin("YlOrRd", domain = a$Freq, bins = bins)
+
+m <- leaflet(covid_active) %>%
+  addTiles() %>% 
+  addProviderTiles(providers$CartoDB.Positron) %>%
+  addPolygons(data = nsw_shape, fillColor = ~pal(aa$Freq),
+              weight = 1,
+              opacity = 1,
+              color = "black",
+              dashArray = "4",
+              fillOpacity = 0.7,
+              highlight = highlightOptions(
+                weight = 4,
+                color = "gray",
+                dashArray = "",
+                fillOpacity = 0.7,
+                bringToFront = TRUE),
+              label = labels,
+              labelOptions = labelOptions(
+                style = list("font-weight" = "normal", padding = "3px 8px"),
+                textsize = "15px",
+                direction = "auto")) %>%
+  setView(lng = 151.2016, 
+          lat = -33.86052, 
+          zoom = 11) 
+
+m %>%   addLegend(pal = pal, values = ~aa$Freq, opacity = 0.7, title = "Number of cases",
+                  position = "bottomright")
+
+bins <- c(0, 5, 7, 10, 13, 15, 17, 20, 30, Inf)
+pal <- colorBin("YlOrRd", domain = aa$Freq, bins = bins)
+
+s <- leaflet(covid_active) %>% addTiles() %>%
+  addCircles(lng = ~long, lat = ~lat, color= ~pal(aa$Freq), weight = 3,
+             radius = ~aa$Freq * 100, popup = ~aa$postcode
+  )%>%
+addProviderTiles(providers$ CartoDB.Positron) %>%
+  setView(lng = 151.2016, 
+          lat = -33.86052, 
+          zoom = 11) %>%
+  addLegend("bottomright", pal = pal, values = ~aa$Freq,
+            title = "Cases")
+
+s
+
+result <- rpubsUpload(title='Choropleth map: NSW COVID-19 data',
+                      htmlFile='report.html',
+                      method=getOption('rpubs.upload.method','auto'))
+result

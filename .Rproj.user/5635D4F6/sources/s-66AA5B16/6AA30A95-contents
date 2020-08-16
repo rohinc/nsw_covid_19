@@ -1,0 +1,272 @@
+---
+title: "Choropleth map: NSW COVID-19 data"
+author: "Rohin Chhabra"
+date: "`r Sys.Date()`"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Vignette Title}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+The ongoing pandemic has highlighted the importance of effectively utilizing data to understand how and where the virus is spreading through communities around the world. This vignette will be exploring the NSW COVID-19 dataset to see if we can identify any trends in NSW and Sydney. We will cover several R packages which can be used together to intuitively interpret any type Spatial data. 
+
+## 1. Loading required packages and getting the data ready
+```{r message=FALSE}
+library(leaflet)
+library(leaflet.extras)
+library(data.table)
+library(dplyr)
+library(rgdal)
+library(markdown)
+```
+
+There are several packages which will be installed as pre-requisites when installing above libraries.
+
+#### Let's load in the data
+We'll be using the `fread` function from the `data.table` library. It allows for faster file reading and also provides a syntax closer to SQL when analyzing the data. 
+
+
+```{r}
+# The `data.table` library is an extension of the in-built `data.frame` function. 
+# Using a web link to import data, always ensures we have most upto date data
+covid <- fread('https://data.nsw.gov.au/data/dataset/aefcde60-3b0c-4bc0-9af1-6fe652944ec2/resource/21304414-1ff1-4243-a5d2-f52778048b29/download/confirmed_cases_table1_location.csv')
+covid = as.data.table(covid)
+head(covid)
+```
+
+We are interested in the number of patients from each postcode. It would be useful to see where these cases lie on a map to understand if there any __hotspots__ within the City.
+
+We need to convert our postcode values into longitude and latitude coordinates, this will allow us to use the `leaflet` package for creating the Choropleth map. We'll be using the freely available [Australian postcode](https://www.matthewproctor.com/australian_postcodes) file which contains longitude and latitude cooridnates for all postcodes in Australia.
+
+```{r}
+postcodes <- fread("australian_postcodes.csv")
+postcodes = as.data.table(postcodes)
+head(postcodes)
+
+# Readubg in a file consisting only of Sydney postcodes for further analysis
+sydney_postcodes <- fread("sydney_postcodes.csv")
+sydney_postcodes = as.data.table(sydney_postcodes)
+```
+
+Filter out on non-NSW postcodes to match our dataset and remove any duplicate values from the postcodes to create a unique list.
+
+```{r}
+nsw_codes <- postcodes[state == 'NSW']
+
+# Multiple suburbs share a postcode, but the COVID dataset only has the postcode 
+# values listed for each case. 
+# Remove duplicate values to create a unique df of postcodes
+nsw_codes <- distinct(nsw_codes, postcode, .keep_all = TRUE)
+nsw_codes = as.data.table(nsw_codes)
+```
+
+We'll be using the `merge` function to copy across longitude and latitude values to the COVID-19 dataset.  
+
+```{r}
+# Both datasets contain the postcodes column, use this as PK value
+covid <- merge(covid, nsw_codes[, c("postcode", "long", "lat")], by="postcode")
+# clean up null values and incorrect postcode coordinates
+covid <- filter(covid, postcode !='1871' & long != 0.0000)
+```
+
+## 2. Plotting the data
+
+We'll be using the `leaflet` package to plot our data. We can use `leaflet` to add different types of layers to our map to make it intuitive and interactive.
+
+```{r, out.width = '100%'}
+map <- leaflet(covid) %>%
+  # addTiles() function adds the default map option from the OpenStreetMap API
+  addTiles() %>% 
+  # the Cluster marker will automatically sum up the occurences of cases in each postcode
+  addMarkers( clusterOptions = markerClusterOptions()) %>% 
+  # CartoDB provides an uncluttered background free of labels which we dont need
+  # there are several other Providers that be used (reference)
+  addProviderTiles(providers$CartoDB.Positron) 
+# removing this map as the file is too large during publishing
+# map
+```
+
+We enhance this map by using a __shapefile__ which has information on NSW suburb boundaries to clearly outline the map. This can be obtained from the __data.gov.au__ database for free. 
+
+__Once un-zipped, the folder should contain 7 files, ensure these are copied to your working directory before the next step__
+
+## 3. Using rgdal
+Once the files are in your working directory, we'll use the `rgdal` package to read the __NSW_LOCALITY_POLYGON_shp.shp__ file through the `readOGR` function. 
+
+```{r}
+# this stores the input data into a suitable Spatial vector object. 
+nsw_shape <- readOGR(dsn="NSW_LOCALITY_POLYGON_shp.shp")
+```
+
+## 4. Using leaflet for customization
+We can now use the `addPolygons` layer in `leaflet` to outline the localities in NSW. 
+For simplicity, lets focus on suburbs only in Sydney:
+
+```{r, out.width='100%'}
+# `sydney_postcodes` variable  allows us to focus our analysis to only Sydney suburbs
+covid_sydney <- covid %>% filter(postcode %in% sydney_postcodes$postcode)
+
+sydney_map <- leaflet(covid_sydney) %>%
+  addTiles() %>% 
+  addMarkers( clusterOptions = markerClusterOptions()) %>% 
+  addProviderTiles(providers$CartoDB.Positron) %>%
+  addPolygons(data = nsw_shape, color = "#444444", weight = 1, smoothFactor = 0.5,
+              opacity = 0.5, fillOpacity = 0.1) %>%
+  # coordinates provided are to center the map onto a certain spot, zoom happens at that point
+  # coordinates for Sydney city
+  setView(lng = 151.2016, 
+            lat = -33.86052, 
+           zoom = 11) 
+
+sydney_map
+```
+
+
+
+We'll use functions like `colorBin()`, `highlight`, `addLegend()` and `label` to enhance the look of our map.
+
+The `highlight` function in conjuction with the `sprintf` function maps the labels. Usually labels in R are implemented through a `Shiny App`, however we'll be using the `lapply` method to convert our HTML markdown into a variable readable by R.
+
+```{r, out.width='100%'}
+# creating a df for the frequency of cases in each postcode
+# this will help us define the colour intensity range
+total_cases_by_postcode <- as.data.frame(table(covid_sydney$postcode))
+colnames(total_cases_by_postcode) <- c("postcode", "Freq")
+
+# add labels for when a segment is highlighted
+labels <- sprintf(
+  "<strong>%s</strong><br/>%g cases",
+  total_cases_by_postcode$postcode, total_cases_by_postcode$Freq
+  # finally we'll use `lapply` to ensure the HTML markup is interpreted as such by R
+) %>% lapply(htmltools::HTML)
+
+# define intensity intervals for bins
+bins <- c(0, 20, 40, 50, 60, 70, 80, 100, Inf)
+# this colour pallette will highlight the highest concentrations in Red 
+# intuitive for higher number of cases
+pal <- colorBin("YlOrRd", domain = total_cases_by_postcode$Freq, bins = bins)
+
+sydney_map <- leaflet(covid_sydney) %>%
+  addTiles() %>% 
+  addProviderTiles(providers$CartoDB.Positron) %>%
+  # `addMarkers( clusterOptions = markerClusterOptions())` removed as it 
+  #   doesn't fit the Choropleth map
+  # fillColor function used with the Frequency of cases from the total_cases_by_postcode df
+  addPolygons(data = nsw_shape, fillColor = ~pal(total_cases_by_postcode$Freq),
+              weight = 1,
+              opacity = 1,
+              color = "black",
+              #dashed outline for a cleaner look
+              dashArray = "4",
+              fillOpacity = 0.7,
+              highlight = highlightOptions(
+                #thickness of the outline when highlighted
+                weight = 4,
+                #color of outline when highlighted
+                color = "gray",
+                #fills the outline when highlighted
+                dashArray = "",
+                fillOpacity = 0.7,
+                #weather the shape should be brought to the front on hover
+                bringToFront = TRUE),
+              #defining labels from above
+               label = labels,
+              #we are able to customise how the labels should look when highlighted
+              labelOptions = labelOptions(
+                style = list("font-weight" = "normal", padding = "2.5px 7.5px"),
+                textsize = "16px",
+                direction = "auto")) %>%
+  setView(lng = 151.2016, 
+            lat = -33.86052, 
+           zoom = 11) %>%   
+  #add the legend using the total_cases_by_postcode df
+  addLegend(pal = pal, values = ~total_cases_by_postcode$Freq, opacity = 0.7, title = "Number of COVID cases",
+                  position = "bottomright")
+
+sydney_map
+```
+
+This is the final version of our Choropleth map. We can see there are more cases in places like Bondi, The Hills Shire and Inner West. There are inaccuracies within the postcode coordinates data as we can see several postcodes that are tagged to incorrect segments on the map. Even with these discrepancies, we are still able get a general understanding of where the cases have spread in Sydney. 
+
+Let's plot the __active number of cases__ to understand more about COVID-19 __hotspots__ in Sydney.
+
+
+
+## 5. Plotting active cases
+
+For this example, any cases that's reported __40 days__ from __today's system date__ will be considered as an active case. 
+
+We'll need to calculate the difference in days between the `notifcation_date` and the `system_date`:
+
+```{r}
+# adding a new column for 'system_date'
+covid_active <- mutate(covid_sydney, system_date = Sys.Date())
+covid_active <- as.data.frame(covid_active)
+# adding a new column for `difference` measured in days
+covid_active <- covid_active %>% mutate(difference = covid_active$system_date - as.Date(covid_active$notification_date))
+```
+
+Filter out cases where the `difference` is less than 40 days and map this new dataframe:
+
+```{r, out.width='100%'}
+covid_active <- filter(covid_active, difference < 40)
+#lets add a colour range to see if we can see any trends
+total_active_cases <- as.data.frame(table(covid_active$postcode))
+colnames(total_active_cases) <- c("postcode", "Freq")
+```
+
+### Circle markers in leaflet
+
+We can use the `addCircles()` funtction to better understand the __hotspots__ in the City. 
+
+```{r, out.width='100%'}
+bins <- c(0, 5, 7, 10, 13, 15, 17, 20, 30, Inf)
+pal <- colorBin("YlOrRd", domain = total_active_cases$Freq, bins = bins)
+
+active_map_circles <- leaflet(covid_active) %>% addTiles() %>%
+  addCircles(lng = ~long, lat = ~lat, color= ~pal(total_active_cases$Freq), weight = 3,
+             # radius will allow us to visualise the spread of the virus
+             radius = ~total_active_cases$Freq * 100, popup = ~total_active_cases$postcode) %>%
+  addProviderTiles(providers$CartoDB.Positron) %>%
+  setView(lng = 151.2016, 
+          lat = -33.86052, 
+          zoom = 11) %>%
+  addLegend("bottomright", pal = pal, values = ~total_active_cases$Freq,
+            title = "Active COVID-19 Cases")
+
+active_map_circles
+```
+
+With this map, we can see __hotspots__ in the South of Sydney, Inner West and in the North West of Sydney. 
+
+In conclusion, there are several ways to manipulate the same dataset to derive a range of insights. Packages like `leaflet` combined with a few others can exponentially reduce the 'time to market' for Data Scientists. 
+
+These are just some of the options available in the packages discussed above. See below for a full range of references.
+
+## 6. References
+
+* Analysis, Z. (2020). Tips for reading spatial files into R with rgdal. Technical Tidbits From Spatial Analysis & Data Science. Retrieved 16 August 2020, from http://zevross.com/blog/2016/01/13/tips-for-reading-spatial-files-into-r-with-rgdal/.
+
+* Data.gov.au. (2020). Retrieved 16 August 2020, from https://data.gov.au/data/dataset/91e70237-d9d1-4719-a82f-e71b811154c6/resource/5f5ca807-0586-4b93-87dd-891691985272/download/nsw_locality_polygon_shp_gda2020.zip.
+
+* Leaflet for R - Choropleths. Rstudio.github.io. (2020). Retrieved 16 August 2020, from https://rstudio.github.io/leaflet/choropleths.html.
+
+* Leaflet for R - Introduction. Rstudio.github.io. (2020). Retrieved 16 August 2020, from https://rstudio.github.io/leaflet/.
+
+* Leaflet for R - Markers. Rstudio.github.io. (2020). Retrieved 16 August 2020, from https://rstudio.github.io/leaflet/markers.html.
+
+* Leaflet Provider Demo. Leaflet-extras.github.io. (2020). Retrieved 16 August 2020, from http://leaflet-extras.github.io/leaflet-providers/preview/.
+
+* NSW COVID-19 cases data | Data.NSW. Data.nsw.gov.au. (2020). Retrieved 16 August 2020, from https://data.nsw.gov.au/nsw-covid-19-data/cases.
+
+* Page, O. (2020). Sydney Postcodes. Into Sydney Directory. Retrieved 16 August 2020, from https://www.intosydneydirectory.com.au/sydney-postcodes.php.
+
+* Proctor, M. (2020). Matthew Proctor. Matthew Proctor's Blog. Retrieved 16 August 2020, from https://www.matthewproctor.com/australian_postcodes.
+

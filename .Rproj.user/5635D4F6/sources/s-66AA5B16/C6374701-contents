@@ -1,0 +1,26 @@
+library(leaflet)
+library(readr)
+library(data.table)
+
+m <- leaflet() %>%
+  addTiles() %>%  # Add default OpenStreetMap map tiles
+  addMarkers(lat=28.651627, lng=77.301266, popup="The birthplace of me")
+m  # Print the map
+
+df <- fread("covid_cases.csv")
+
+df = as.data.table(df)
+
+#DT[i, j, by]
+##   R:                 i                 j        by
+## SQL:  where | order by   select | update  group by
+
+ans <- df[state == 'NSW']
+head(ans)
+
+##https://www.matthewproctor.com/australian_postcodes
+##https://www.intosydneydirectory.com.au/sydney-postcodes.php
+##https://data.nsw.gov.au/nsw-covid-19-data/cases
+##https://rstudio.github.io/leaflet/choropleths.html
+##http://zevross.com/blog/2016/01/13/tips-for-reading-spatial-files-into-r-with-rgdal/
+##https://data.gov.au/data/dataset/91e70237-d9d1-4719-a82f-e71b811154c6/resource/5f5ca807-0586-4b93-87dd-891691985272/download/nsw_locality_polygon_shp_gda2020.zip
