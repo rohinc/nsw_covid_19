@@ -15,7 +15,7 @@ knitr::opts_chunk$set(
 )
 ```
 
-The ongoing pandemic has highlighted the importance of effectively utilizing data to understand how and where the virus is spreading through communities around the world. This vignette will be exploring the NSW COVID-19 dataset to see if we can identify any trends in NSW and Sydney. We will cover several R packages which can be used together to intuitively interpret any type Spatial data.
+The ongoing pandemic has highlighted the importance of effectively utilizing data to understand how and where the virus is spreading through communities around the world. This vignette will be exploring the NSW COVID-19 dataset to see if we can identify any trends in NSW and Sydney. We will cover several R packages which can be used together to intuitively interpret any type of Spatial data.
 
 ## 1. Loading required packages and getting the data ready
 ```{r message=FALSE}
@@ -27,6 +27,7 @@ library(rgdal)
 ```
 
 There are several packages which will be installed as pre-requisites when installing above libraries.
+
 
 #### Let's load in the data
 We'll be using the `fread` function from the `data.table` library. It allows for faster file reading and also provides a syntax closer to SQL when analyzing the data. 
@@ -49,7 +50,7 @@ postcodes <- fread("australian_postcodes.csv")
 postcodes = as.data.table(postcodes)
 head(postcodes)
 
-# Readubg in a file consisting only of Sydney postcodes for further analysis
+# Reading in a file consisting only of Sydney postcodes for further analysis
 sydney_postcodes <- fread("sydney_postcodes.csv")
 sydney_postcodes = as.data.table(sydney_postcodes)
 ```
@@ -83,18 +84,18 @@ We'll be using the `leaflet` package to plot our data. We can use `leaflet` to a
 map <- leaflet(covid) %>%
   # addTiles() function adds the default map option from the OpenStreetMap API
   addTiles() %>% 
-  # the Cluster marker will automatically sum up the occurences of cases in each postcode
+  # the Cluster marker will automatically sum up the occurrences of cases in each postcode
   addMarkers( clusterOptions = markerClusterOptions()) %>% 
-  # CartoDB provides an uncluttered background free of labels which we dont need
-  # there are several other Providers that be used (reference)
+  # CartoDB provides an uncluttered background free of labels
+  # there are several other Providers that can be used (see references)
   addProviderTiles(providers$CartoDB.Positron) 
 # removing this map as the file is too large during publishing
-# map
+ map
 ```
 
 We enhance this map by using a __shapefile__ which has information on NSW suburb boundaries to clearly outline the map. This can be obtained from the __data.gov.au__ database for free. 
 
-__Once un-zipped, the folder should contain 7 files, ensure these are copied to your working directory before the next step__
+__Once un-zipped, the folder should contain 7 files, ensure these are copied to your working directory before the next step (see github repo for structure)__ 
 
 ## 3. Using rgdal
 Once the files are in your working directory, we'll use the `rgdal` package to read the __NSW_LOCALITY_POLYGON_shp.shp__ file through the `readOGR` function. 
@@ -200,7 +201,7 @@ Let's plot the __active number of cases__ to understand more about COVID-19 __ho
 
 ## 5. Plotting active cases
 
-For this example, any cases that's reported __40 days__ from __today's system date__ will be considered as an active case. 
+For this example, any cases that's reported __30 days__ from __today's system date__ will be considered as an active case. 
 
 We'll need to calculate the difference in days between the `notifcation_date` and the `system_date`:
 
@@ -212,10 +213,10 @@ covid_active <- as.data.frame(covid_active)
 covid_active <- covid_active %>% mutate(difference = covid_active$system_date - as.Date(covid_active$notification_date))
 ```
 
-Filter out cases where the `difference` is less than 40 days and map this new dataframe:
+Filter out cases where the `difference` is less than 30 days and map this new dataframe:
 
 ```{r, out.width='100%'}
-covid_active <- filter(covid_active, difference < 40)
+covid_active <- filter(covid_active, difference < 30)
 #lets add a colour range to see if we can see any trends
 total_active_cases <- as.data.frame(table(covid_active$postcode))
 colnames(total_active_cases) <- c("postcode", "Freq")
@@ -223,7 +224,7 @@ colnames(total_active_cases) <- c("postcode", "Freq")
 
 ### Circle markers in leaflet
 
-We can use the `addCircles()` funtction to better understand the __hotspots__ in the City. 
+We can use the `addCircles()` function to better understand the __hotspots__ in the City. 
 
 ```{r, out.width='100%'}
 bins <- c(0, 5, 7, 10, 13, 15, 17, 20, 30, Inf)
@@ -268,4 +269,7 @@ These are just some of the options available in the packages discussed above. Se
 * Page, O. (2020). Sydney Postcodes. Into Sydney Directory. Retrieved 16 August 2020, from https://www.intosydneydirectory.com.au/sydney-postcodes.php.
 
 * Proctor, M. (2020). Matthew Proctor. Matthew Proctor's Blog. Retrieved 16 August 2020, from https://www.matthewproctor.com/australian_postcodes.
+
+### 7. Github repo
+https://github.com/rohinc/nsw_covid_19
 
