@@ -124,8 +124,8 @@ sydney_map <- leaflet(covid_sydney) %>%
             lat = -33.86052, 
            zoom = 11) 
 
-#sydney_map
-knitr::include_graphics("image1.png")
+sydney_map
+#knitr::include_graphics("image1.png")
 ```
 
 
@@ -190,8 +190,8 @@ sydney_map <- leaflet(covid_sydney) %>%
   addLegend(pal = pal, values = ~total_cases_by_postcode$Freq, opacity = 0.7, title = "Number of COVID cases",
                   position = "bottomright")
 
-#sydney_map
-knitr::include_graphics("image2.png")
+sydney_map
+#knitr::include_graphics("image2.png")
 ```
 
 This is the final version of our Choropleth map. We can see there are more cases in places like Bondi, The Hills Shire and Inner West. There are inaccuracies within the postcode coordinates data as we can see several postcodes that are tagged to incorrect segments on the map. Even with these discrepancies, we are still able get a general understanding of where the cases have spread in Sydney. 
